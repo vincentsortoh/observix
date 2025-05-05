@@ -7,7 +7,7 @@ INSTRUMENTATION_MAP = {
     # HTTP Clients
     "requests": ("opentelemetry.instrumentation.requests", "opentelemetry-instrumentation-requests", "RequestsInstrumentor"),
     "httpx": ("opentelemetry.instrumentation.httpx", "opentelemetry-instrumentation-httpx", "HTTPXClientInstrumentor"),
-    "urllib": ("opentelemetry.instrumentation.urllib", "opentelemetry-instrumentation-urllib", "UrllibInstrumentor"),
+    "urllib": ("opentelemetry.instrumentation.urllib3", "opentelemetry-instrumentation-urllib3", "URLLib3Instrumentor"),
 
     # Databases & ORMs
     "sqlalchemy": ("opentelemetry.instrumentation.sqlalchemy", "opentelemetry-instrumentation-sqlalchemy", "SQLAlchemyInstrumentor"),
@@ -24,7 +24,7 @@ INSTRUMENTATION_MAP = {
     "wsgi": ("opentelemetry.instrumentation.wsgi", "opentelemetry-instrumentation-wsgi", "WSGIInstrumentor"),
 
     # gRPC
-    "grpc": ("opentelemetry.instrumentation.grpc", "opentelemetry-instrumentation-grpc", "GrpcInstrumentor"),
+    "grpc": ("opentelemetry.instrumentation.grpc", "opentelemetry-instrumentation-grpc", "server_interceptor"),
 
     # You can uncomment if needed
     # "logging": ("opentelemetry.instrumentation.logging", "opentelemetry-instrumentation-logging", "LoggingInstrumentor"),

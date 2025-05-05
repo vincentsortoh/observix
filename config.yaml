@@ -1,0 +1,24 @@
+instrument_classes:
+  - user_service.UserService
+  - order_service.OrderService
+ignore_classes:
+  - module.helper.HelperClass
+modules_to_instrument:
+  - user_service
+  - order_service
+packages_to_instrument:
+  - module
+logging:
+  enable_stdlib: true
+  enable_loguru: true
+  json_logs: true
+telemetry:
+  service_name: user-service
+  version: 2.3.1
+  environment: dev
+  metrics:
+    exporters:
+      - console
+  tracing:
+    exporters:
+      - console
