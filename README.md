@@ -2,7 +2,7 @@
 
 ## Overview
 
-**Observix** is an observability library for Python applications, designed to make tracing, metrics, logging, and instrumentation effortless. Built on top of **OpenTelemetry**, Observix streamlines the process of integrating observability into your Python projects—with **minimal configuration and maximum insight**. Forget manual spans—Observix automatically instruments your code for you.
+Observix** is an observability library for Python applications, designed to make tracing, metrics, logging, and instrumentation effortless. Built on top of **OpenTelemetry**, Observix streamlines the process of integrating observability into your Python projects—with **minimal configuration and maximum insight**. Forget manual spans—Observix automatically instruments your code for you.
 
 ## Key Features
 
