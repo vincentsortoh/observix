@@ -1,32 +1,61 @@
 {
     "instrument_classes": [
       "user_service.UserService",
-      "order_service.OrderService"
+      "order_service.OrderService",
+      "api_client.APIClient"
     ],
     "ignore_classes": [
-      "module.helper.HelperClass"
+      "utils.helpers.InternalHelper"
     ],
     "modules_to_instrument": [
-        "user_service",
-        "order_service"
-      ],
+      "user_service",
+      "order_service",
+      "api_client"
+    ],
     "packages_to_instrument": [
-        "module"
-      ],
+      "services",
+      "clients"
+    ],
     "logging": {
-        "enable_stdlib": true,
-        "enable_loguru": true,
-        "json_logs": true
-      },
+      "enabled": true,
+      "level": "INFO",
+      "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s]",
+      "enable_stdlib": true,
+      "enable_loguru": true,
+      "json_logs": true
+    },
     "telemetry": {
-        "service_name": "user-service",
-        "version": "2.3.1",
-        "environment": "dev",
-        "metrics": {
-            "exporters": ["console"]
-        },
-        "tracing": {
-            "exporters": ["console"]
-        }
+      "service_name": "integrated-test-service",
+      "version": "1.0.0",
+      "environment": "test",
+      "metrics": {
+        "enabled": true,
+        "exporters": ["console"],
+        "export_interval_millis": 30000
+      },
+      "tracing": {
+        "enabled": true,
+        "exporters": ["console"],
+        "sample_rate": 1.0
+      }
+    },
+    "security": {
+      "sensitive_keys": ["password", "token", "api_key", "secret"],
+      "redaction_value": "***REDACTED***",
+      "enable_regex": true
+    },
+    "auto_instrumentation": {
+      "enabled": true,
+      "libraries": [
+        "requests",
+        "aiohttp",
+        "flask",
+        "fastapi",
+        "sqlalchemy"
+      ]
+    },
+    "class_instrumentation": {
+      "enabled": true,
+      "base_path": "."
     }
-}
+  }
