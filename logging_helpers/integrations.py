@@ -24,7 +24,6 @@ class InterceptHandler(logging.Handler):
     to another (like standard logging).
     """
     def emit(self, record):
-        # Forward to standard logging
         logging.getLogger(record.name).handle(record)
 
 
@@ -70,9 +69,6 @@ def setup_logging(level="DEBUG", format_string=None, json_format=False,
     
     if add_trace_context:
         if use_async_handler:
-            # Import standard concurrent.futures module needed for the updated async handler
-            #import concurrent.futures
-            print("Using Async +++++++++++++++++ ")
             handler = AsyncSpanLoggingHandler()
         else:
             handler = SpanLoggingHandler()
