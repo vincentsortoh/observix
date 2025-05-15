@@ -199,10 +199,12 @@ def bootstrap(
         
         log_level = logging_config.get("level", "INFO")
         log_format = logging_config.get("format", "%(asctime)s [%(levelname)s] %(name)s - %(message)s [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s]")
+        use_async_handler = logging_config.get("use_async_handler", True)
         
         setup_logging(
             level=log_level,
             format_string=log_format,
+            use_async_handler=use_async_handler
         )
         logger.info("Set up logging with trace context")
     
