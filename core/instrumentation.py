@@ -1,5 +1,5 @@
 """
-Author: Vincent Sortoh
+Author: 
 Created on: 2025-05-09
 
 Instrumentation module for Observix.
@@ -18,7 +18,7 @@ from typing import Set, Dict, Any, Callable, Optional, Type, List, TypeVar, Unio
 from opentelemetry import trace, context
 from opentelemetry.trace import Link, StatusCode, Span
 
-from core.tracer import get_tracer
+from core.enhanced_tracer import get_tracer
 from core.metrics import get_meter
 from utils.security import redact_json, redact_sensitive_data, DataRedactor
 
@@ -166,7 +166,6 @@ class MethodInstrumentor:
                 args_redacted = redact_json(args_to_log)
                 span.set_attribute("args", str(args_redacted))
         
-        # Capture kwargs if enabled
         if self.capture_args and kwargs:
             kwargs_redacted = redact_json(kwargs)
             span.set_attribute("kwargs", str(kwargs_redacted))
@@ -236,7 +235,6 @@ class MethodInstrumentor:
                 try:
                     result = func(*args, **kwargs)
                     
-                    # Capture result if enabled
                     if self.capture_result:
                         sanitized_result = redact_json(result)
                         span.set_attribute("result", str(sanitized_result))
@@ -278,7 +276,6 @@ class MethodInstrumentor:
                 try:
                     result = await func(*args, **kwargs)
                     
-                    # Capture result if enabled
                     if self.capture_result:
                         sanitized_result = redact_json(result)
                         span.set_attribute("result", str(sanitized_result))

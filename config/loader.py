@@ -183,6 +183,7 @@ def _load_from_file(file_path: str) -> Dict[str, Any]:
             
             return config
         else:
+            
             raise ConfigurationError(f"Unsupported configuration file format: {suffix}")
     except Exception as e:
         raise ConfigurationError(f"Error loading configuration from {file_path}: {str(e)}")
@@ -210,7 +211,6 @@ def load_config(
     """
     # Start with default configuration
     config = DEFAULT_CONFIG.copy()
-    
     # Load from file if provided
     if config_path:
         try:

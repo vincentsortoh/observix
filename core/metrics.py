@@ -1,5 +1,5 @@
 """
-Author: Vincent Sortoh
+Author: 
 Created on: 2025-05-10
 
 Metrics module for Observix.

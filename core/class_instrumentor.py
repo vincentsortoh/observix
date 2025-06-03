@@ -1,5 +1,5 @@
 """
-Author: Vincent Sortoh
+Author: 
 Created on: 2025-05-11
 
 Class instrumentation module for Observix.
@@ -62,7 +62,7 @@ def get_modules_to_instrument(config: Dict[str, Any], base_path: Optional[str] =
     for pkg in packages_to_instrument:
         modules_to_instrument.update(module_names_from_package(pkg))
 
-    # If no modules specified but base_path is provided, discover all modules
+
     if not modules_to_instrument and base_path:
         for module_path in Path(base_path).rglob("*.py"):
             if module_path.name.startswith("__"):

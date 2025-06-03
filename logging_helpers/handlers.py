@@ -96,7 +96,6 @@ class AsyncSpanLoggingHandler(logging.Handler):
         self._worker_task = self._loop.create_task(self._process_logs())
         self._closing = False
         
-        # Improved cleanup at exit that properly handles the coroutine
         def cleanup():
             if self._loop.is_running():
                 future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
@@ -104,7 +103,6 @@ class AsyncSpanLoggingHandler(logging.Handler):
                     # Wait with a timeout to avoid hanging on exit
                     future.result(timeout=2.0)
                 except (concurrent.futures.TimeoutError, Exception) as e:
-                    # Log but don't raise to avoid crashing during shutdown
                     print(f"Error during AsyncSpanLoggingHandler shutdown: {e}")
         
         atexit.register(cleanup)
@@ -124,10 +122,8 @@ class AsyncSpanLoggingHandler(logging.Handler):
                 span_context = span.get_span_context()
                 message = record.getMessage()
 
-                # Create cache set if this span hasn't been seen yet
                 logged_messages = self._span_log_cache.setdefault(span, set())
 
-                # Skip duplicate messages
                 if message in logged_messages:
                     return
 
@@ -136,7 +132,6 @@ class AsyncSpanLoggingHandler(logging.Handler):
                     "span_id": f"0x{span_context.span_id:016x}",
                 }
 
-                # Add the log message as an event
                 span.add_event(
                     message,
                     attributes={
@@ -160,8 +155,8 @@ class AsyncSpanLoggingHandler(logging.Handler):
             if self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(self._queue.put(record), self._loop)
             else:
-                # Fallback to synchronous processing if loop isn't running
                 self._sync_emit(record)
+
         except Exception:
             self.handleError(record)
     
@@ -219,80 +214,7 @@ class AsyncSpanLoggingHandler(logging.Handler):
         if self._loop.is_running():
             asyncio.run_coroutine_threadsafe(self._queue.put(None), self._loop)
         
-        # Call the parent class's close method
         super().close()
-
-
-# class AsyncSpanLoggingHandler(logging.Handler):
-#     """
-#     An asynchronous version of SpanLoggingHandler that processes logs in a background task.
-    
-#     This handler is useful for high-throughput logging scenarios where synchronous 
-#     processing might cause performance issues.
-#     """
-#     def __init__(self, level=logging.NOTSET):
-#         super().__init__(level)
-#         self._span_log_cache = weakref.WeakKeyDictionary()
-#         self._queue = asyncio.Queue()  
-#         self._loop = asyncio.get_event_loop()
-#         self._worker_task = self._loop.create_task(self._process_logs())
-        
-#         # Register cleanup at exit
-#         atexit.register(lambda: asyncio.run_coroutine_threadsafe(self.close(), self._loop))
-
-#     async def _process_logs(self):
-#         while True:
-#             record = await self._queue.get()
-#             if record is None:
-#                 break 
-#             await self._log(record)
-
-#     async def _log(self, record):
-#         try:
-#             span = get_current_span()
-#             if span is not None and span.is_recording():
-#                 span_context = span.get_span_context()
-#                 message = record.getMessage()
-
-#                 # Create cache set if this span hasn't been seen yet
-#                 logged_messages = self._span_log_cache.setdefault(span, set())
-
-#                 # Skip duplicate messages
-#                 if message in logged_messages:
-#                     return
-
-#                 trace_context = {
-#                     "trace_id": f"0x{span_context.trace_id:032x}",
-#                     "span_id": f"0x{span_context.span_id:016x}",
-#                 }
-
-#                 # Add the log message as an event
-#                 span.add_event(
-#                     message,
-#                     attributes={
-#                         "log.level": record.levelname,
-#                         **trace_context
-#                     }
-#                 )
-
-#                 logged_messages.add(message)
-
-#         except Exception:
-#             self.handleError(record)
-
-#     def emit(self, record):
-#         """ Emit the log record by queuing it for async processing. """
-#         try:
-#             # Enqueue the log record asynchronously
-#             self._loop.create_task(self._queue.put(record))
-#         except Exception:
-#             self.handleError(record)
-
-#     async def close(self):
-#         """ Gracefully stop the worker and process any remaining logs. """
-#         # Signal the worker to stop processing logs
-#         await self._queue.put(None)  # None signals the worker to stop
-#         await self._worker_task  
 
 
 # Store original log record factory
@@ -348,7 +270,6 @@ def setup_standard_logging_capture(enable_stdout_redirect=True):
     
     logger = logging.getLogger()
 
-    # Create and configure the custom SpanLoggingHandler
     handler = SpanLoggingHandler()
     
     handler.setFormatter(TraceContextFormatter())
@@ -374,7 +295,6 @@ def capture_log_as_span_event(level, message, trace_context=None):
     if span is None:
         return
 
-    # Log the message as a span event with log level
     attributes = {"log.level": level}
     if trace_context:
         attributes.update(trace_context)

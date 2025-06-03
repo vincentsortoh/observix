@@ -27,36 +27,24 @@ class InterceptHandler(logging.Handler):
         logging.getLogger(record.name).handle(record)
 
 
+
 def setup_logging(level="DEBUG", format_string=None, json_format=False, 
                  capture_print=True, add_trace_context=True, 
                  root_logger_name="", loggers=None, use_async_handler=True):
     """
     Set up logging with OpenTelemetry trace context integration.
-    
-    This function configures Python's standard logging library to include trace context
-    information in log messages and optionally redirect stdout/stderr to loggers.
-    
-    Args:
-        level (str): Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-        format_string (str, optional): Custom log format string
-        json_format (bool): Whether to output logs in JSON format
-        capture_print (bool): Whether to capture print() and stdout/stderr
-        add_trace_context (bool): Whether to add trace context to logs
-        root_logger_name (str): Name of the root logger to configure
-        loggers (list): Additional logger names to configure with the same settings
-        use_async_handler (bool): Whether to use AsyncSpanLoggingHandler (True) or SpanLoggingHandler (False)
-        
-    Returns:
-        dict: Dictionary with configured loggers
     """
     numeric_level = getattr(logging, level.upper(), logging.INFO)
-    
+
+    # Configure root logger
     root_logger = logging.getLogger(root_logger_name)
     root_logger.setLevel(numeric_level)
     
+    # Remove existing handlers
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
     
+    # Create formatter
     if json_format:
         formatter = JsonTraceContextFormatter()
     else:
@@ -67,6 +55,7 @@ def setup_logging(level="DEBUG", format_string=None, json_format=False,
         
         formatter = TraceContextFormatter(fmt=format_string)
     
+    # Create handler
     if add_trace_context:
         if use_async_handler:
             handler = AsyncSpanLoggingHandler()
@@ -80,6 +69,8 @@ def setup_logging(level="DEBUG", format_string=None, json_format=False,
     root_logger.addHandler(handler)
     
     configured_loggers = {root_logger_name: root_logger}
+    
+    # Configure additional loggers
     if loggers:
         for logger_name in loggers:
             logger = logging.getLogger(logger_name)
@@ -89,8 +80,11 @@ def setup_logging(level="DEBUG", format_string=None, json_format=False,
                 logger.removeHandler(existing_handler)
             
             logger.addHandler(handler)
+            
+            logger.propagate = False
+            
             configured_loggers[logger_name] = logger
-    
+
     if add_trace_context:
         from logging_helpers.handlers import inject_trace_context
         inject_trace_context(json_logs=json_format)
@@ -100,77 +94,6 @@ def setup_logging(level="DEBUG", format_string=None, json_format=False,
     
     return configured_loggers
 
-
-# def setup_logging(level="DEBUG", format_string=None, json_format=False, 
-#                  capture_print=True, add_trace_context=True, 
-#                  root_logger_name="", loggers=None):
-#     """
-#     Set up logging with OpenTelemetry trace context integration.
-    
-#     This function configures Python's standard logging library to include trace context
-#     information in log messages and optionally redirect stdout/stderr to loggers.
-    
-#     Args:
-#         level (str): Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-#         format_string (str, optional): Custom log format string
-#         json_format (bool): Whether to output logs in JSON format
-#         capture_print (bool): Whether to capture print() and stdout/stderr
-#         add_trace_context (bool): Whether to add trace context to logs
-#         root_logger_name (str): Name of the root logger to configure
-#         loggers (list): Additional logger names to configure with the same settings
-        
-#     Returns:
-#         dict: Dictionary with configured loggers
-#     """
-#     numeric_level = getattr(logging, level.upper(), logging.INFO)
-    
-#     root_logger = logging.getLogger(root_logger_name)
-#     root_logger.setLevel(numeric_level)
-    
-#     for handler in list(root_logger.handlers):
-#         root_logger.removeHandler(handler)
-    
-#     if json_format:
-#         formatter = JsonTraceContextFormatter()
-#     else:
-#         if format_string is None:
-#             format_string = "%(asctime)s [%(levelname)s] %(name)s - %(message)s"
-#             if add_trace_context:
-#                 format_string += " [trace_id=%(trace_id)s span_id=%(span_id)s]"
-        
-#         formatter = TraceContextFormatter(fmt=format_string)
-    
-#     if add_trace_context:
-#         print("++++++++++++++++++++++++++++ lll ")
-#         handler = AsyncSpanLoggingHandler() #SpanLoggingHandler()
-#     else:
-#         handler = logging.StreamHandler()
-    
-#     handler.setFormatter(formatter)
-#     handler.setLevel(numeric_level)
-#     root_logger.addHandler(handler)
-    
-#     configured_loggers = {root_logger_name: root_logger}
-#     if loggers:
-#         for logger_name in loggers:
-#             logger = logging.getLogger(logger_name)
-#             logger.setLevel(numeric_level)
-            
-#             for existing_handler in list(logger.handlers):
-#                 logger.removeHandler(existing_handler)
-            
-#             logger.addHandler(handler)
-#             configured_loggers[logger_name] = logger
-    
-#     if add_trace_context:
-#         from logging_helpers.handlers import inject_trace_context
-#         inject_trace_context(json_logs=json_format)
-    
-#     if capture_print:
-#         redirect_stdout_stderr_to_logger(handler)
-    
-    
-#     return configured_loggers
 
 
 def bridge_loguru_to_std_logging():
@@ -183,10 +106,8 @@ def bridge_loguru_to_std_logging():
     try:
         from loguru import logger
         
-        # Remove Loguru's default handler
         logger.remove()
 
-        # Redirect everything to standard logging
         logger.add(InterceptHandler(), level="DEBUG")
         
     except ImportError:
@@ -202,6 +123,7 @@ def setup_loguru_with_trace_context(json_logs=False):
     """
     try:
         from loguru import logger as loguru_logger
+        
 
         def formatter(record):
             span = get_current_span()

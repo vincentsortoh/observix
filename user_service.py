@@ -1,8 +1,10 @@
 import asyncio
 from loguru import logger
+import logging
 from utils.decorator import no_trace, add_to_span
 
-#logger = logging.getLogger("jj")
+#logger = logging.getLogger()
+# custom_logger = logger.bind(context="user_service")
 class UserService:
 
     def __init__(self):
@@ -15,7 +17,7 @@ class UserService:
 
     @add_to_span(operation="fetch_user", static_tag="async", description="tesing-async")
     async def fetch_user(self, user_id):
-        print(f"Fetching user {user_id}...")
+        logger.info(f"Fetching user {user_id} jkkk  ...")
         await asyncio.sleep(1)
         return {"password": user_id, "name": "Alice"}
 

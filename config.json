@@ -22,7 +22,17 @@
       "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s]",
       "enable_stdlib": true,
       "enable_loguru": true,
-      "json_logs": true
+      "json_logs": true,
+      "loggers": [
+        "user_service",
+        "order_service", 
+        "api_client",
+        "requests",
+        "urllib3",
+        "sqlalchemy.engine",
+        "my_app.database",
+        "my_app.auth"
+      ]
     },
     "telemetry": {
       "service_name": "integrated-test-service",
@@ -37,6 +47,30 @@
         "enabled": true,
         "exporters": ["console"],
         "sample_rate": 1.0
+      },
+      "logging": {
+        "enabled": true,
+        "level": "INFO",
+        "format": "%(asctime)s [%(levelname)s] %(name)s - %(message)s [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s]",
+        "enable_stdlib": true,
+        "enable_loguru": true,
+        "json_logs": true,
+        "capture_print": true,
+        "use_async_handler": true,
+        "loguru": {
+          "enabled": true,
+          "bridge_to_std": true
+        },
+        "loggers": [
+          "user_service",
+          "order_service", 
+          "api_client",
+          "requests",
+          "urllib3",
+          "sqlalchemy.engine",
+          "my_app.database",
+          "my_app.auth"
+        ]
       }
     },
     "security": {
