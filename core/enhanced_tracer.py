@@ -15,7 +15,6 @@ from opentelemetry.sdk.trace.export import ConsoleSpanExporter, SimpleSpanProces
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import Resource
 
-# Import the new log exporter module
 from core.log_exporter import init_log_export, setup_log_capture_with_export, get_log_provider
 
 try:

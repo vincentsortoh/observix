@@ -20,7 +20,6 @@ logger = logging.getLogger(__name__)
 processed_classes: Set[str] = set()
 
 def load_config(config_file: str = "config.json") -> dict:
-    """Load instrumentation configuration from a JSON file."""
     with open(config_file, "r") as f:
         return json.load(f)
 
@@ -58,7 +57,6 @@ def get_modules_to_instrument(config: Dict[str, Any], base_path: Optional[str] =
     modules_to_instrument = set(config.get("modules_to_instrument", []))
     packages_to_instrument = config.get("packages_to_instrument", [])
 
-    # Add modules from packages
     for pkg in packages_to_instrument:
         modules_to_instrument.update(module_names_from_package(pkg))
 

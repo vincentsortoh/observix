@@ -1,9 +1,13 @@
 import asyncio
-from loguru import logger
+
+# from loguru import logger
+import json
 import logging
 from utils.decorator import no_trace, add_to_span
 
-#logger = logging.getLogger()
+logger = logging.getLogger()
+
+
 # custom_logger = logger.bind(context="user_service")
 class UserService:
 
@@ -12,8 +16,23 @@ class UserService:
 
     @add_to_span(operation="create_user", static_tag="sync", me="testing")
     def create_user(self, payload: dict):
+        print("!!!!!!!!!! test print capturing !!!!!!!!!!!!!")
         logger.error(f"Creating user with password {payload['password']}")
-        return {"status": "created", "user_id": payload['password'], "password": "fdgddfdf"}
+        logger.info(
+            "DB connection failed {}".format(
+                json.dumps(
+                    {
+                        "validation.errors": ["missing_email", "invalid_phone"],
+                        "order.id": "ddfs",
+                    }
+                )
+            )
+        )
+        return {
+            "status": "created",
+            "user_id": payload["password"],
+            "password": "fdgddfdf",
+        }
 
     @add_to_span(operation="fetch_user", static_tag="async", description="tesing-async")
     async def fetch_user(self, user_id):

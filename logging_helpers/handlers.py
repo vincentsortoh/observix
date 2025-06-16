@@ -7,6 +7,7 @@ This module provides custom logging handlers that capture logs and attach them
 to the current active span as events with trace context.
 """
 
+import inspect
 import sys
 import logging
 import asyncio
@@ -18,6 +19,64 @@ from opentelemetry.trace import get_current_span
 
 
 class StreamToLogger:
+    """
+    A file-like object that redirects writes to a logger instance.
+    
+    Useful for capturing stdout/stderr and sending to the logging system.
+    """
+    def __init__(self, logger, level=logging.INFO, stream=sys.__stdout__):
+        self.logger = logger
+        self.level = level
+        self.stream = stream
+
+    def write(self, message):
+        message = message.strip()
+        if message:
+            # Find the original caller (skip this method and any logging internals)
+            frame = inspect.currentframe()
+            try:
+                # Skip the current frame (write method)
+                caller_frame = frame.f_back
+                
+                # Skip any logging-related frames to find the actual source
+                while caller_frame:
+                    filename = caller_frame.f_code.co_filename
+                    function_name = caller_frame.f_code.co_name
+                    
+                    # Skip frames from logging modules and our own handlers
+                    if (not filename.endswith('handlers.py') and 
+                        not filename.endswith('logging/__init__.py') and
+                        not filename.endswith('integrations.py') and
+                        not function_name.startswith('_')):
+                        break
+                    caller_frame = caller_frame.f_back
+                
+                if caller_frame:
+                    # Create a log record with the correct location information
+                    
+                    record = self.logger.makeRecord(
+                        name=self.logger.name,
+                        level=self.level,
+                        fn=caller_frame.f_code.co_filename,
+                        lno=caller_frame.f_lineno,
+                        msg=message,
+                        args=(),
+                        exc_info=None,
+                        func=caller_frame.f_code.co_name
+                    )
+                    self.logger.handle(record)
+                else:
+                    self.logger.log(self.level, message)
+                    
+            finally:
+                del frame 
+            
+            self.stream.write(message + "\n")
+
+    def flush(self):
+        self.stream.flush()
+
+class StreamToLogger2:
     """
     A file-like object that redirects writes to a logger instance.
     
@@ -194,7 +253,6 @@ class AsyncSpanLoggingHandler(logging.Handler):
         await self._queue.put(None)
         await self._queue.join()
         
-        # Wait for worker task to complete
         await self._worker_task
 
     def close(self):

@@ -107,7 +107,6 @@ class MethodInstrumentor:
             
         frame = inspect.currentframe()
         try:
-            # Go up frames to find the caller
             for _ in range(3):  # Skip this function, wrapper, and instrumented function
                 if frame is None:
                     break
