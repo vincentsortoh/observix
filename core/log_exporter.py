@@ -1,5 +1,5 @@
 """
-Author:
+Author: Vincent Sortoh
 Created on: 2025-05-31
 Log exporter module for Observix.
 
@@ -8,7 +8,9 @@ maintaining the ability to attach logs to OpenTelemetry spans as events.
 """
 
 import logging
+import sys
 import weakref
+import threading
 from typing import Dict, List, Optional, Any, Union
 from opentelemetry import trace
 from opentelemetry.trace import get_current_span
@@ -47,10 +49,13 @@ class SpanAttachingLogHandler(logging.Handler):
     This handler combines the functionality of SpanLoggingHandler with log exporting.
     """
 
-    def __init__(self, level=logging.NOTSET, attach_to_spans=True):
+    def __init__(self, level=logging.NOTSET, attach_to_spans=True, export_logs=True):
         super().__init__(level)
         self._span_log_cache = weakref.WeakKeyDictionary()
+        self._processed_records = set()  # Cache to prevent duplicate processing
+        self._record_lock = threading.RLock()  # Thread safety for deduplication
         self.attach_to_spans = attach_to_spans
+        self.export_logs = export_logs
         self.otel_handler = None
 
     def set_otel_handler(self, otel_handler):
@@ -59,10 +64,26 @@ class SpanAttachingLogHandler(logging.Handler):
 
     def emit(self, record):
         try:
+            # Create a unique identifier for this record based on content and location
+            # Include timestamp to handle rapid identical messages
+            record_id = f"{record.getMessage()}:{record.pathname}:{record.lineno}:{record.created:.6f}"
+            
+            with self._record_lock:
+                if record_id in self._processed_records:
+                    return  # Skip already processed records
+                    
+                self._processed_records.add(record_id)
+                
+                # Clean up processed records cache periodically to prevent memory leaks
+                if len(self._processed_records) > 1000:
+                    # Keep only the most recent 500 records
+                    recent_records = list(self._processed_records)[-500:]
+                    self._processed_records = set(recent_records)
+
             if self.attach_to_spans:
                 self._attach_to_span(record)
 
-            if self.otel_handler:
+            if self.export_logs and self.otel_handler:
                 self.otel_handler.emit(record)
 
         except Exception:
@@ -75,9 +96,13 @@ class SpanAttachingLogHandler(logging.Handler):
             span_context = span.get_span_context()
             message = record.getMessage()
 
+            # Use the same caching mechanism as the original handler
             logged_messages = self._span_log_cache.setdefault(span, set())
+            
+            # Create a unique key for this message including location and timestamp info
+            message_key = f"{message}:{record.pathname}:{record.lineno}:{record.created:.3f}"
 
-            if message in logged_messages:
+            if message_key in logged_messages:
                 return
 
             trace_context = {
@@ -94,7 +119,155 @@ class SpanAttachingLogHandler(logging.Handler):
                 },
             )
 
-            logged_messages.add(message)
+            logged_messages.add(message_key)
+
+
+
+class OTELExportingStreamToLogger:
+    """
+    A file-like object that captures writes to a logger while preserving original stream behavior
+    AND ensuring OTEL log export.
+    """
+    def __init__(self, logger, level=logging.INFO, original_stream=None, echo_to_original=True, 
+                 span_export_handler=None):
+        self.logger = logger
+        self.level = level
+        self.original_stream = original_stream or sys.__stdout__
+        self.echo_to_original = echo_to_original
+        self._buffer = ""
+        self._processed_messages = set()
+        self._lock = threading.Lock()
+        self.span_export_handler = span_export_handler
+        
+    def write(self, message):
+        # ALWAYS preserve original behavior first
+        if self.original_stream and self.echo_to_original:
+            self.original_stream.write(message)
+            self.original_stream.flush()  # Ensure immediate output
+        
+        # Then capture for logging/tracing
+        # Handle partial writes (common with print statements)
+        self._buffer += message
+        
+        # Process complete lines
+        while '\n' in self._buffer:
+            line, self._buffer = self._buffer.split('\n', 1)
+            if line.strip():  # Only log non-empty lines
+                self._process_message(line.strip())
+    
+    def _process_message(self, message):
+        """Process a message for logging, avoiding duplicates."""
+        with self._lock:
+            # Create a unique key for this message
+            thread_id = threading.get_ident()
+            message_key = f"{message}:{thread_id}"
+            
+            if message_key in self._processed_messages:
+                return
+            
+            self._processed_messages.add(message_key)
+            
+            # Clean up cache periodically
+            if len(self._processed_messages) > 500:
+                recent_messages = list(self._processed_messages)[-250:]
+                self._processed_messages = set(recent_messages)
+            
+            # Create a log record and emit through the SpanAttachingLogHandler
+            # This will handle both span attachment AND OTEL export
+            if self.span_export_handler:
+                record = self.logger.makeRecord(
+                    name=self.logger.name,
+                    level=self.level,
+                    fn="<print>",
+                    lno=0,
+                    msg=message,
+                    args=(),
+                    exc_info=None,
+                    func="<print>"
+                )
+                # Use the SpanAttachingLogHandler directly to ensure both span attachment and export
+                self.span_export_handler.emit(record)
+            else:
+                # Fallback to regular logging if no span handler available
+                self.logger.log(self.level, message)
+            
+    def flush(self):
+        # Flush any remaining buffer content
+        if self._buffer.strip():
+            self._process_message(self._buffer.strip())
+            self._buffer = ""
+            
+        # Always flush original stream
+        if self.original_stream:
+            self.original_stream.flush()
+            
+    def __getattr__(self, name):
+        """Delegate other attributes to original stream"""
+        return getattr(self.original_stream, name)
+
+
+def redirect_stdout_stderr_to_logger_with_otel_export(level=logging.INFO):
+    """
+    Enhanced version that ensures print statements are exported to OTEL logs.
+    """
+    
+    stdout_logger = logging.getLogger("stdout")
+    stderr_logger = logging.getLogger("stderr")
+    
+    # Get or create the SpanAttachingLogHandler from the root logger
+    root_logger = logging.getLogger()
+    span_export_handler = None
+    
+    for handler in root_logger.handlers:
+        if hasattr(handler, 'attach_to_spans') and hasattr(handler, 'export_logs'):
+            span_export_handler = handler
+            break
+    
+    # If no SpanAttachingLogHandler exists, create one
+    if span_export_handler is None:
+        from log_exporter import SpanAttachingLogHandler, get_log_provider
+        span_export_handler = SpanAttachingLogHandler(
+            level=level,
+            attach_to_spans=True,
+            export_logs=True
+        )
+        
+        # Set up OTEL handler if log provider exists
+        log_provider = get_log_provider()
+        if log_provider:
+            from opentelemetry.sdk._logs import LoggingHandler
+            otel_handler = LoggingHandler(logger_provider=log_provider)
+            span_export_handler.set_otel_handler(otel_handler)
+            
+        from logging_helpers.formatters import TraceContextFormatter
+        span_export_handler.setFormatter(TraceContextFormatter())
+    
+    # Add the handler to stdout/stderr loggers (this ensures they get exported)
+    stdout_logger.addHandler(span_export_handler)
+    stderr_logger.addHandler(span_export_handler)
+    
+    stdout_logger.setLevel(level)
+    stderr_logger.setLevel(logging.ERROR)
+
+    # Store original streams
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+
+    # Use the enhanced StreamToLogger that routes through SpanAttachingLogHandler
+    sys.stdout = OTELExportingStreamToLogger(
+        stdout_logger, 
+        level, 
+        original_stdout,
+        echo_to_original=True,
+        span_export_handler=span_export_handler
+    )
+    sys.stderr = OTELExportingStreamToLogger(
+        stderr_logger, 
+        logging.ERROR, 
+        original_stderr,
+        echo_to_original=True,
+        span_export_handler=span_export_handler
+    )
 
 
 def init_log_export(
@@ -192,6 +365,8 @@ def setup_log_capture_with_export(
     loggers: Optional[List[str]] = None,
     enable_loguru: bool = True,
     loguru_bridge_to_std: bool = True,
+    echo_print_to_console: bool = True,  # Changed default to True
+    add_console_handler: bool = True,  # New parameter to control console output
 ) -> Dict[str, Any]:
     """
     Set up comprehensive log capture with both span attachment and export.
@@ -208,6 +383,8 @@ def setup_log_capture_with_export(
         loggers: List of logger names to configure
         enable_loguru: Whether to enable loguru integration
         loguru_bridge_to_std: Whether to bridge loguru to standard logging
+        echo_print_to_console: Whether to echo captured print statements to console
+        add_console_handler: Whether to add a console handler for standard logging
 
     Returns:
         dict: Configuration results and handlers
@@ -228,45 +405,109 @@ def setup_log_capture_with_export(
         attach_to_spans=attach_to_spans,
     )
 
-    otel_logging_handler = LoggingHandler(logger_provider=log_provider)
-
+    # Create the combined handler (only for span attachment and log export)
     span_export_handler = SpanAttachingLogHandler(
         level=getattr(logging, level.upper(), logging.INFO),
         attach_to_spans=attach_to_spans,
+        export_logs=True,  # Enable log export
     )
+    
+    # Set up the OTLP handler
+    otel_logging_handler = LoggingHandler(logger_provider=log_provider)
     span_export_handler.set_otel_handler(otel_logging_handler)
     span_export_handler.setFormatter(TraceContextFormatter())
 
+    # Configure root logger
     root_logger = logging.getLogger()
     root_logger.setLevel(getattr(logging, level.upper(), logging.INFO))
 
+    # Check if console handler already exists
+    has_console_handler = any(
+        isinstance(handler, logging.StreamHandler) and 
+        hasattr(handler, 'stream') and 
+        handler.stream.name in ['<stdout>', '<stderr>']
+        for handler in root_logger.handlers
+    )
+
+    # Remove existing handlers to prevent duplicates, but preserve console if needed
+    existing_console_handlers = []
+    if has_console_handler:
+        existing_console_handlers = [
+            h for h in root_logger.handlers 
+            if isinstance(h, logging.StreamHandler) and 
+            hasattr(h, 'stream') and 
+            h.stream.name in ['<stdout>', '<stderr>']
+        ]
+
+    # Clear all handlers
     for handler in list(root_logger.handlers):
         root_logger.removeHandler(handler)
 
+    # Add our span attachment and export handler
     root_logger.addHandler(span_export_handler)
+
+    # Add console handler if needed and requested
+    if add_console_handler and not existing_console_handlers:
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(TraceContextFormatter())
+        console_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+        root_logger.addHandler(console_handler)
+    elif existing_console_handlers:
+        # Re-add existing console handlers
+        for handler in existing_console_handlers:
+            root_logger.addHandler(handler)
 
     configured_loggers = {"": root_logger}
 
+    # Configure additional loggers
     if loggers:
+        # this logger comes from the configuration. the problem is that users would to configured
+        # sample:
+        #     "loggers": [
+        #     "user_service",
+        #     "order_service", 
+        #     "services",
+        #     "api_client",
+        #     "requests",
+        #     "urllib3",
+        #     "sqlalchemy.engine",
+        #     "my_app.database",
+        #     "my_app.auth"
+        # ]
+         
+        # i need to auto add loggers for classes
+        
         for logger_name in loggers:
             logger_instance = logging.getLogger(logger_name)
             logger_instance.setLevel(getattr(logging, level.upper(), logging.INFO))
 
+            # Clear handlers for this logger
             for existing_handler in list(logger_instance.handlers):
                 logger_instance.removeHandler(existing_handler)
 
             logger_instance.addHandler(span_export_handler)
+            
+            if add_console_handler:
+                console_handler = logging.StreamHandler()
+                console_handler.setFormatter(TraceContextFormatter())
+                console_handler.setLevel(getattr(logging, level.upper(), logging.INFO))
+                logger_instance.addHandler(console_handler)
+
             logger_instance.propagate = False
 
             configured_loggers[logger_name] = logger_instance
 
+    # Inject trace context into log records
     from logging_helpers.handlers import inject_trace_context
-
     inject_trace_context()
 
+    # Set up print capture with control over echoing
     if capture_print:
-        redirect_stdout_stderr_to_logger(span_export_handler)
+        redirect_stdout_stderr_to_logger_with_otel_export(
+            level=getattr(logging, level.upper(), logging.INFO)
+        )
 
+    # Handle loguru integration
     loguru_enabled = False
     if enable_loguru:
         if loguru_bridge_to_std:
@@ -290,6 +531,7 @@ def setup_log_capture_with_export(
         "loguru_enabled": loguru_enabled,
         "span_attachment_enabled": attach_to_spans,
         "exporters": exporters or ["console"],
+        "console_handler_added": add_console_handler,
     }
 
 
@@ -340,14 +582,17 @@ def get_log_capturing_handler(
     if isinstance(level, str):
         level = getattr(logging, level.upper(), logging.INFO)
 
-    handler = SpanAttachingLogHandler(level=level, attach_to_spans=attach_to_spans)
+    handler = SpanAttachingLogHandler(
+        level=level, 
+        attach_to_spans=attach_to_spans,
+        export_logs=export_logs
+    )
 
     if export_logs and _log_provider:
         otel_handler = LoggingHandler(logger_provider=_log_provider)
         handler.set_otel_handler(otel_handler)
 
     from logging_helpers.formatters import TraceContextFormatter
-
     handler.setFormatter(TraceContextFormatter())
 
     return handler

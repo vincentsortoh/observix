@@ -1,5 +1,5 @@
 """
-Author: 
+Author: Vincent Sortoh
 Created on: 2025-05-11
 
 Class instrumentation module for Observix.
@@ -26,7 +26,9 @@ def load_config(config_file: str = "config.json") -> dict:
 def module_names_from_package(pkg: str) -> List[str]:
     """Convert a package like 'my_package.module' into all module paths under it."""
     try:
+        print("cccccccccccc ", pkg)
         module = importlib.import_module(pkg)
+        print("bbbbbbbbbbbbbb ", module)
         if hasattr(module, "__path__"):
             path = Path(module.__path__[0])
         else:
@@ -37,11 +39,12 @@ def module_names_from_package(pkg: str) -> List[str]:
             logger.warning(f"Package path not found: {pkg}")
             return []
     
-    return [
+    modules = [
         f"{pkg}.{p.stem}"
         for p in path.glob("*.py")
         if not p.stem.startswith("__")
     ]
+    return modules
 
 def get_modules_to_instrument(config: Dict[str, Any], base_path: Optional[str] = None) -> Set[str]:
     """
@@ -69,7 +72,7 @@ def get_modules_to_instrument(config: Dict[str, Any], base_path: Optional[str] =
             parts = rel_path.parts
             module_name = ".".join([base_path.replace('/', '.')] + list(parts))
             modules_to_instrument.add(module_name)
-    
+
     return modules_to_instrument
 
 def instrument_selected_classes(
@@ -105,7 +108,7 @@ def instrument_selected_classes(
     ignore_classes = set(config.get("ignore_classes", []))
     
     module_names = get_modules_to_instrument(config, base_path)
-    
+
     results = {
         "instrumented": [],
         "ignored": [],

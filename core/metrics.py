@@ -1,9 +1,8 @@
 """
-Author: 
-Created on: 2025-05-10
+Author: Vincent Sortoh
+Created on: 2025-rt-10
 
 Metrics module for Observix.
-
 This module provides functions for initializing and accessing OpenTelemetry metrics.
 """
 
@@ -82,7 +81,6 @@ def init_metrics(
         "deployment.environment": environment,
     })
     
-    # Set up metric readers based on exporters
     metric_readers = []
     for exporter_name in exporters:
         if exporter_name == "console":

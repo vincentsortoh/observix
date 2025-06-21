@@ -18,7 +18,7 @@ from typing import Set, Dict, Any, Callable, Optional, Type, List, TypeVar, Unio
 from opentelemetry import trace, context
 from opentelemetry.trace import Link, StatusCode, Span
 
-from core.enhanced_tracer import get_tracer
+from core.tracer import get_tracer
 from core.metrics import get_meter
 from utils.security import redact_json, redact_sensitive_data, DataRedactor
 

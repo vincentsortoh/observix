@@ -5,7 +5,7 @@ import os
 import asyncio
 import json
 from loguru import logger
-from enhanced_bootstrap import bootstrap, setup_all_tracing, quickstart, bootstrap_with_log_export_only
+from bootstrap import bootstrap, setup_all_tracing, quickstart, bootstrap_with_log_export_only
 
 print("=== Testing Enhanced Bootstrap Functionality ===")
 
@@ -88,6 +88,11 @@ uservice = user_service.UserService()
 print("\nTesting synchronous method...")
 user_data = {"user": "enhanced-user-vincent", "password": "secure123", "api_key": "secret-key"}
 create_result = uservice.create_user(user_data)
+
+from services.purchase import Purchase
+p = Purchase()
+asyncio.run(p.purchase("shoe", 20))
+p.refund(1)
 # logger.info(f"Create user result: {create_result}")
 
 # # Test asynchronous method with enhanced logging

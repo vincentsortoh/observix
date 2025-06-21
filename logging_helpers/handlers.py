@@ -1,10 +1,10 @@
 """
 Author: Vincent Sortoh
 Created on: 2025-05-09
-Logging handlers with OpenTelemetry trace context integration.
+Fixed logging handlers with OpenTelemetry trace context integration.
 
-This module provides custom logging handlers that capture logs and attach them
-to the current active span as events with trace context.
+This version focuses on capturing logs for tracing without interfering with
+existing logging behavior and prevents duplicate events.
 """
 
 import inspect
@@ -13,47 +13,72 @@ import logging
 import asyncio
 import weakref
 import atexit
-import concurrent.futures
-import concurrent
+import threading
 from opentelemetry.trace import get_current_span
 
 
-class StreamToLogger:
+class NonInterferingStreamToLogger:
     """
-    A file-like object that redirects writes to a logger instance.
+    A file-like object that redirects writes to a logger while preserving original stream behavior.
     
-    Useful for capturing stdout/stderr and sending to the logging system.
+    Ensures original behavior is NEVER affected and prevents duplicates.
     """
-    def __init__(self, logger, level=logging.INFO, stream=sys.__stdout__):
+    def __init__(self, logger, level=logging.INFO, original_stream=sys.__stdout__):
         self.logger = logger
         self.level = level
-        self.stream = stream
+        self.original_stream = original_stream
+        self._buffer = ""
+        self._processed_messages = set()
+        self._lock = threading.Lock()
 
     def write(self, message):
-        message = message.strip()
-        if message:
-            # Find the original caller (skip this method and any logging internals)
+        # ALWAYS write to original stream first - this is the user's expected behavior
+        if self.original_stream:
+            self.original_stream.write(message)
+            self.original_stream.flush()
+        
+        # Then capture for tracing (but don't interfere with original output)
+        self._buffer += message
+        
+        # Process complete messages for logging
+        while '\n' in self._buffer:
+            line, self._buffer = self._buffer.split('\n', 1)
+            if line.strip():  
+                self._process_message(line.strip())
+
+    def _process_message(self, message):
+        """Process a message for logging, avoiding duplicates."""
+        with self._lock:
+            # Create a unique key for this message
+            message_key = f"{message}:{id(threading.current_thread())}"
+            
+            if message_key in self._processed_messages:
+                return
+            
+            self._processed_messages.add(message_key)
+            
+            # Clean up cache periodically
+            if len(self._processed_messages) > 500:
+                # Keep only recent half
+                recent_messages = list(self._processed_messages)[-250:]
+                self._processed_messages = set(recent_messages)
+            
+            # Find the original caller for better trace context
             frame = inspect.currentframe()
             try:
-                # Skip the current frame (write method)
-                caller_frame = frame.f_back
+                caller_frame = frame.f_back.f_back  # Skip this method and write()
                 
-                # Skip any logging-related frames to find the actual source
+                # Skip internal frames to find actual source
                 while caller_frame:
                     filename = caller_frame.f_code.co_filename
                     function_name = caller_frame.f_code.co_name
                     
-                    # Skip frames from logging modules and our own handlers
-                    if (not filename.endswith('handlers.py') and 
-                        not filename.endswith('logging/__init__.py') and
-                        not filename.endswith('integrations.py') and
+                    if (not filename.endswith(('handlers.py', 'integrations.py', 'logging/__init__.py')) and 
                         not function_name.startswith('_')):
                         break
                     caller_frame = caller_frame.f_back
                 
                 if caller_frame:
-                    # Create a log record with the correct location information
-                    
                     record = self.logger.makeRecord(
                         name=self.logger.name,
                         level=self.level,
@@ -64,212 +89,285 @@ class StreamToLogger:
                         exc_info=None,
                         func=caller_frame.f_code.co_name
                     )
-                    self.logger.handle(record)
+                    # Only send to trace handlers, not console handlers
+                    for handler in self.logger.handlers:
+                        if isinstance(handler, (NonInterferingSpanHandler, PreservingSpanLoggingHandler)):
+                            handler.handle(record)
                 else:
-                    self.logger.log(self.level, message)
-                    
+                    # Fallback - only to trace handlers
+                    for handler in self.logger.handlers:
+                        if isinstance(handler, (NonInterferingSpanHandler, PreservingSpanLoggingHandler)):
+                            handler.emit(logging.LogRecord(
+                                name=self.logger.name,
+                                level=self.level,
+                                pathname="<print>",
+                                lineno=0,
+                                msg=message,
+                                args=(),
+                                exc_info=None
+                            ))
+                        
             finally:
-                del frame 
-            
-            self.stream.write(message + "\n")
+                del frame
 
     def flush(self):
-        self.stream.flush()
+        # Process any remaining buffer
+        if self._buffer.strip():
+            self._process_message(self._buffer.strip())
+            self._buffer = ""
+        
+        # Always flush original stream
+        if self.original_stream:
+            self.original_stream.flush()
 
-class StreamToLogger2:
+
+class NonInterferingSpanHandler(logging.Handler):
     """
-    A file-like object that redirects writes to a logger instance.
+    A logging handler that ONLY captures for spans - never outputs to console/files.
     
-    Useful for capturing stdout/stderr and sending to the logging system.
-    """
-    def __init__(self, logger, level=logging.INFO, stream=sys.__stdout__):
-        self.logger = logger
-        self.level = level
-        self.stream = stream
-
-    def write(self, message):
-        message = message.strip()
-        if message:
-            self.logger.log(self.level, message)
-            self.stream.write(message + "\n")  # Echo to original stream
-
-    def flush(self):
-        self.stream.flush()
-
-
-class SpanLoggingHandler(logging.Handler):
-    """
-    A logging handler that captures log records and adds them as events to the current span.
-    
-    This handler also maintains a weak reference cache to avoid duplicate log messages
-    within the same span.
+    This handler is designed to work alongside existing handlers without interfering.
+    Prevents duplicate span events.
     """
     def __init__(self, level=logging.NOTSET):
         super().__init__(level)
         self._span_log_cache = weakref.WeakKeyDictionary()
+        self._global_message_cache = set()
+        self._last_cleanup = 0
+        self._lock = threading.RLock()
 
     def emit(self, record):
         try:
-            span = get_current_span()
-            if span is not None and span.is_recording():
-                span_context = span.get_span_context()
-                message = record.getMessage()
+            with self._lock:
+                span = get_current_span()
+                if span is not None and span.is_recording():
+                    span_context = span.get_span_context()
+                    message = record.getMessage()
+                    
+                    # Create unique identifier including thread info to prevent cross-contamination
+                    thread_id = threading.get_ident()
+                    message_key = f"{message}:{getattr(record, 'pathname', 'unknown')}:{getattr(record, 'lineno', 0)}:{thread_id}"
+                    
+                    # Get or create message cache for this span
+                    span_id = id(span)
+                    logged_messages = self._span_log_cache.setdefault(span, set())
 
-                # Create cache set if this span hasn't been seen yet
-                logged_messages = self._span_log_cache.setdefault(span, set())
+                    # Skip duplicates - check both span-specific and global caches
+                    if message_key in logged_messages or message_key in self._global_message_cache:
+                        return
 
-                # Skip duplicate messages
-                if message in logged_messages:
-                    return
-
-                trace_context = {
-                    "trace_id": f"0x{span_context.trace_id:032x}",
-                    "span_id": f"0x{span_context.span_id:016x}",
-                }
-
-                span.add_event(
-                    message,
-                    attributes={
-                        "log.level": record.levelname,
-                        **trace_context
+                    # Add to span as event
+                    trace_context = {
+                        "trace_id": f"0x{span_context.trace_id:032x}",
+                        "span_id": f"0x{span_context.span_id:016x}",
                     }
-                )
 
-                logged_messages.add(message)
+                    span.add_event(
+                        message,
+                        attributes={
+                            "log.level": record.levelname,
+                            "log.logger": getattr(record, 'name', 'unknown'),
+                            "log.pathname": getattr(record, 'pathname', 'unknown'),
+                            "log.lineno": getattr(record, 'lineno', 0),
+                            "log.function": getattr(record, 'funcName', 'unknown'),
+                            **trace_context
+                        }
+                    )
+
+                    # Cache the message
+                    logged_messages.add(message_key)
+                    self._global_message_cache.add(message_key)
+                    
+                    # Periodic cleanup
+                    import time
+                    current_time = time.time()
+                    if current_time - self._last_cleanup > 60:  # Cleanup every minute
+                        self._cleanup_caches()
+                        self._last_cleanup = current_time
 
         except Exception:
-            self.handleError(record)
+            # Don't call handleError as it might interfere with existing logging
+            pass
+
+    def _cleanup_caches(self):
+        """Clean up caches to prevent memory leaks."""
+        if len(self._global_message_cache) > 1000:
+            # Keep only recent messages
+            recent_messages = list(self._global_message_cache)[-500:]
+            self._global_message_cache = set(recent_messages)
+
+
+# Alias for backward compatibility
+PreservingSpanLoggingHandler = NonInterferingSpanHandler
+
+
+class SpanLoggingHandler(NonInterferingSpanHandler):
+    """
+    Original SpanLoggingHandler - now inherits from NonInterferingSpanHandler
+    for better behavior preservation.
+    """
+    pass
+
 
 class AsyncSpanLoggingHandler(logging.Handler):
     """
-    An asynchronous version of SpanLoggingHandler that processes logs in a background task.
-    
-    This handler is useful for high-throughput logging scenarios where synchronous 
-    processing might cause performance issues.
+    Non-interfering async version that only captures for spans.
     """
     def __init__(self, level=logging.NOTSET):
         super().__init__(level)
-        self._span_log_cache = weakref.WeakKeyDictionary()
-        self._queue = asyncio.Queue()  
-        self._loop = asyncio.get_event_loop()
-        self._worker_task = self._loop.create_task(self._process_logs())
+        self._span_log_cache = weakref.WeakValueDictionary()
+        self._message_cache = set()
+        self._queue = None
+        self._loop = None
+        self._worker_task = None
         self._closing = False
+        self._lock = threading.RLock()
+        self._setup_async()
         
-        def cleanup():
-            if self._loop.is_running():
-                future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
-                try:
-                    # Wait with a timeout to avoid hanging on exit
-                    future.result(timeout=2.0)
-                except (concurrent.futures.TimeoutError, Exception) as e:
-                    print(f"Error during AsyncSpanLoggingHandler shutdown: {e}")
-        
-        atexit.register(cleanup)
+    def _setup_async(self):
+        """Set up async components."""
+        try:
+            self._loop = asyncio.get_event_loop()
+        except RuntimeError:
+            # No event loop running
+            self._loop = None
+            return
+            
+        if self._loop and self._loop.is_running():
+            self._queue = asyncio.Queue()
+            self._worker_task = self._loop.create_task(self._process_logs())
+            
+            def cleanup():
+                if self._loop and self._loop.is_running():
+                    future = asyncio.run_coroutine_threadsafe(self._shutdown(), self._loop)
+                    try:
+                        future.result(timeout=2.0)
+                    except Exception:
+                        pass
+            
+            atexit.register(cleanup)
 
     async def _process_logs(self):
+        """Process logs asynchronously."""
         while True:
-            record = await self._queue.get()
-            if record is None:
-                break 
-            await self._log(record)
-            self._queue.task_done()
+            try:
+                record = await asyncio.wait_for(self._queue.get(), timeout=1.0)
+                if record is None:
+                    break
+                await self._log(record)
+                self._queue.task_done()
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                break
 
     async def _log(self, record):
+        """Log record to span (async version)."""
         try:
-            span = get_current_span()
-            if span is not None and span.is_recording():
-                span_context = span.get_span_context()
-                message = record.getMessage()
+            with self._lock:
+                span = get_current_span()
+                if span is not None and span.is_recording():
+                    span_context = span.get_span_context()
+                    message = record.getMessage()
+                    
+                    thread_id = threading.get_ident()
+                    message_key = f"{message}:{getattr(record, 'pathname', 'unknown')}:{getattr(record, 'lineno', 0)}:{thread_id}"
+                    
+                    if message_key in self._message_cache:
+                        return
 
-                logged_messages = self._span_log_cache.setdefault(span, set())
-
-                if message in logged_messages:
-                    return
-
-                trace_context = {
-                    "trace_id": f"0x{span_context.trace_id:032x}",
-                    "span_id": f"0x{span_context.span_id:016x}",
-                }
-
-                span.add_event(
-                    message,
-                    attributes={
-                        "log.level": record.levelname,
-                        **trace_context
+                    trace_context = {
+                        "trace_id": f"0x{span_context.trace_id:032x}",
+                        "span_id": f"0x{span_context.span_id:016x}",
                     }
-                )
 
-                logged_messages.add(message)
+                    span.add_event(
+                        message,
+                        attributes={
+                            "log.level": record.levelname,
+                            "log.logger": getattr(record, 'name', 'unknown'),
+                            **trace_context
+                        }
+                    )
+
+                    self._message_cache.add(message_key)
+                    
+                    if len(self._message_cache) > 1000:
+                        recent_messages = list(self._message_cache)[-500:]
+                        self._message_cache = set(recent_messages)
 
         except Exception:
-            self.handleError(record)
+            pass
 
     def emit(self, record):
-        """ Emit the log record by queuing it for async processing. """
-        if self._closing:
-            return  # Skip processing if we're shutting down
+        """Emit record for async processing."""
+        if self._closing or not self._queue or not self._loop:
+            # Fallback to sync processing
+            self._sync_emit(record)
+            return
             
         try:
-            # Enqueue the log record asynchronously
             if self._loop.is_running():
                 asyncio.run_coroutine_threadsafe(self._queue.put(record), self._loop)
             else:
                 self._sync_emit(record)
-
         except Exception:
-            self.handleError(record)
+            self._sync_emit(record)
     
     def _sync_emit(self, record):
-        """Synchronous fallback for emit when event loop is not running."""
+        """Synchronous fallback."""
         try:
-            span = get_current_span()
-            if span is not None and span.is_recording():
-                span_context = span.get_span_context()
-                message = record.getMessage()
-                
-                trace_context = {
-                    "trace_id": f"0x{span_context.trace_id:032x}",
-                    "span_id": f"0x{span_context.span_id:016x}",
-                }
-                
-                span.add_event(
-                    message,
-                    attributes={
-                        "log.level": record.levelname,
-                        **trace_context
+            with self._lock:
+                span = get_current_span()
+                if span is not None and span.is_recording():
+                    span_context = span.get_span_context()
+                    message = record.getMessage()
+                    
+                    thread_id = threading.get_ident()
+                    message_key = f"{message}:{getattr(record, 'pathname', 'unknown')}:{getattr(record, 'lineno', 0)}:{thread_id}"
+                    
+                    if message_key in self._message_cache:
+                        return
+                    
+                    trace_context = {
+                        "trace_id": f"0x{span_context.trace_id:032x}",
+                        "span_id": f"0x{span_context.span_id:016x}",
                     }
-                )
+                    
+                    span.add_event(
+                        message,
+                        attributes={
+                            "log.level": record.levelname,
+                            "log.logger": getattr(record, 'name', 'unknown'),
+                            **trace_context
+                        }
+                    )
+                    
+                    self._message_cache.add(message_key)
         except Exception:
-            self.handleError(record)
+            pass
 
     async def _shutdown(self):
-        """Internal method to properly shut down the handler."""
+        """Shutdown async components."""
         if self._closing:
             return
             
         self._closing = True
         
-        # Signal worker to stop and wait for queue to be processed
-        await self._queue.put(None)
-        await self._queue.join()
+        if self._queue:
+            await self._queue.put(None)
+            await self._queue.join()
         
-        await self._worker_task
+        if self._worker_task:
+            await self._worker_task
 
     def close(self):
-        """
-        Override close to handle both sync and async shutdown scenarios.
-        
-        This method doesn't await the coroutine but initiates the shutdown process.
-        For complete shutdown, the _shutdown coroutine should be awaited.
-        """
+        """Close handler."""
         if self._closing:
             return
             
         self._closing = True
         
-        # For sync contexts (like normal logging shutdown), we need to ensure
-        # the queue is signaled to stop even if we can't await
-        if self._loop.is_running():
+        if self._loop and self._loop.is_running() and self._queue:
             asyncio.run_coroutine_threadsafe(self._queue.put(None), self._loop)
         
         super().close()
@@ -280,16 +378,8 @@ _original_factory = logging.getLogRecordFactory()
 
 def inject_trace_context(json_logs=False):
     """
-    Injects trace context into stdlib logging.
-    
-    This function modifies the logging record factory to include trace_id and span_id
-    fields in every log record, enabling correlation with OpenTelemetry traces.
-    
-    Args:
-        json_logs (bool): If True, configures logging to use JSON format with trace context.
+    Injects trace context into stdlib logging without affecting existing behavior.
     """
-    from logging_helpers.formatters import TraceContextFormatter, JsonTraceContextFormatter
-    
     def trace_context_factory(*args, **kwargs):
         record = _original_factory(*args, **kwargs)
         span = get_current_span()
@@ -300,42 +390,28 @@ def inject_trace_context(json_logs=False):
 
     logging.setLogRecordFactory(trace_context_factory)
 
-    # Add default handler if none exists
-    if not logging.getLogger().handlers:
-        handler = logging.StreamHandler()
-        
-        if json_logs:
-            handler.setFormatter(JsonTraceContextFormatter())
-        else:
-            handler.setFormatter(TraceContextFormatter())
-
-        logging.getLogger().addHandler(handler)
-        logging.getLogger().setLevel(logging.INFO)
-
 
 def setup_standard_logging_capture(enable_stdout_redirect=True):
     """
-    Sets up logging to automatically send log messages as span events.
-    
-    Args:
-        enable_stdout_redirect (bool): If True, redirects stdout/stderr to loggers.
-        
-    Returns:
-        SpanLoggingHandler: The configured handler instance.
+    Sets up non-interfering logging capture for traces.
     """
-    from logging_helpers.formatters import TraceContextFormatter
-    from logging_helpers.integrations import redirect_stdout_stderr_to_logger
-    
     logger = logging.getLogger()
 
-    handler = SpanLoggingHandler()
+    # Only add our handler if it's not already there
+    has_span_handler = any(isinstance(h, NonInterferingSpanHandler) for h in logger.handlers)
     
-    handler.setFormatter(TraceContextFormatter())
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)
+    if not has_span_handler:
+        handler = NonInterferingSpanHandler()
+        logger.addHandler(handler)
     
-    if enable_stdout_redirect:
-        redirect_stdout_stderr_to_logger(handler)
+    # Ensure minimum level for capture
+    if logger.level > logging.INFO:
+        logger.setLevel(logging.INFO)
+    
+    if True: #enable_stdout_redirect:
+        print("JJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJJ")
+        from logging_helpers.integrations import redirect_stdout_stderr_to_logger_preserving
+        redirect_stdout_stderr_to_logger_preserving()
 
     return handler
 
@@ -343,11 +419,6 @@ def setup_standard_logging_capture(enable_stdout_redirect=True):
 def capture_log_as_span_event(level, message, trace_context=None):
     """
     Capture logs as span events.
-    
-    Args:
-        level (str): The log level (e.g., "INFO", "ERROR")
-        message (str): The log message text
-        trace_context (dict, optional): Additional trace context information
     """
     span = get_current_span()
     if span is None:

@@ -5,7 +5,7 @@ import os
 import asyncio
 import json
 from loguru import logger
-from bootstrap import bootstrap, setup_all_tracing
+from bootstrap2 import bootstrap, setup_all_tracing
 
 # Option 1: Use setup_all_tracing with automatic loguru integration
 # This is the simplest approach that handles everything including loguru

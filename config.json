@@ -2,7 +2,8 @@
     "instrument_classes": [
       "user_service.UserService",
       "order_service.OrderService",
-      "api_client.APIClient"
+      "api_client.APIClient",
+      "services.purchase.Purchase"
     ],
     "ignore_classes": [
       "utils.helpers.InternalHelper"
@@ -10,10 +11,10 @@
     "modules_to_instrument": [
       "user_service",
       "order_service",
-      "api_client"
+      "api_client",
+      "services.purchase"
     ],
     "packages_to_instrument": [
-      "services",
       "clients"
     ],
     "logging": {
@@ -27,6 +28,7 @@
         "user_service",
         "order_service", 
         "api_client",
+        "services.purchase",
         "requests",
         "urllib3",
         "sqlalchemy.engine",
@@ -85,7 +87,9 @@
         "aiohttp",
         "flask",
         "fastapi",
-        "sqlalchemy"
+        "sqlalchemy",
+        "celery",
+        "redis"
       ]
     },
     "class_instrumentation": {
