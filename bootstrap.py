@@ -149,7 +149,6 @@ def bootstrap(
     if enable_class_instrumentation is not None:
         config.setdefault("class_instrumentation", {})["enabled"] = enable_class_instrumentation
     
-    # Handle logging and log export configuration
     if enable_logging is not None:
         config.setdefault("logging", {})["enabled"] = enable_logging
     if enable_log_export is not None:
@@ -159,7 +158,6 @@ def bootstrap(
     if attach_logs_to_spans is not None:
         config.setdefault("logging", {})["attach_to_spans"] = attach_logs_to_spans
     
-    # Handle loguru configuration
     if enable_loguru is not None:
         config.setdefault("logging", {}).setdefault("loguru", {})["enabled"] = enable_loguru
     if loguru_bridge_to_std is not None:
@@ -212,7 +210,6 @@ def bootstrap(
             
             logger.info(f"Initialized integrated tracing and logging with export for service: {service_name}")
         else:
-            # Initialize tracing only
             tracer = None
             if config.get("tracing", {}).get("enabled", True):
                 tracing_config = config.get("tracing", {})
@@ -234,8 +231,6 @@ def bootstrap(
             log_format = logging_config_dict.get("format", "%(asctime)s [%(levelname)s] %(name)s - %(message)s [trace_id=%(otelTraceID)s span_id=%(otelSpanID)s]")
             use_async_handler = logging_config_dict.get("use_async_handler", True)
             loggers = logging_config_dict.get("loggers", None)
-            
-            # Set up standard logging
 
             setup_logging(
                 level=log_level_str,
@@ -244,7 +239,6 @@ def bootstrap(
                 loggers=loggers
             )
                         
-            # Handle loguru integration
             loguru_config = logging_config_dict.get("loguru", {})
             if loguru_config.get("enabled", enable_loguru):
                 from logging_helpers.integrations import setup_loguru_with_trace_context, bridge_loguru_to_std_logging
@@ -253,17 +247,14 @@ def bootstrap(
                 bridge_to_std = loguru_config.get("bridge_to_std", loguru_bridge_to_std)
                 
                 if bridge_to_std:
-                    # Bridge loguru to standard logging so spans can capture loguru logs
                     bridge_loguru_to_std_logging()
                     logger.info("Bridged loguru to standard logging for span capture")
                 else:
-                    # Configure loguru directly with trace context
                     setup_loguru_with_trace_context(json_logs=json_logs)
                     logger.info("Set up loguru with direct trace context")
                 
                 result["loguru_enabled"] = True
     else:
-        # Initialize tracing only if logging is disabled
         tracer = None
         if config.get("tracing", {}).get("enabled", True):
             tracing_config = config.get("tracing", {})
@@ -278,7 +269,6 @@ def bootstrap(
             result["tracer"] = tracer
             logger.info(f"Initialized tracing for service: {service_name}")
     
-    # Initialize metrics
     meter = None
     if config.get("metrics", {}).get("enabled", True):
         metrics_config = config.get("metrics", {})
@@ -295,7 +285,6 @@ def bootstrap(
         result["meter"] = meter
         logger.info(f"Initialized metrics for service: {service_name}")
     
-    # Security configuration
     security_config = config.get("security", {})
     sensitive_keys_config = security_config.get("sensitive_keys")
     redaction_value = security_config.get("redaction_value", "***REDACTED***")
@@ -315,7 +304,6 @@ def bootstrap(
         result["redactor"] = new_redactor
         logger.info("Updated security configuration")
     
-    # Auto-instrumentation
     if config.get("auto_instrumentation", {}).get("enabled", True):
         auto_config = config.get("auto_instrumentation", {})
         libraries = auto_config.get("libraries")
@@ -323,7 +311,6 @@ def bootstrap(
         
         result["instrumentation_results"] = auto_instrument_libraries(libraries)
     
-    # Class instrumentation
     if config.get("class_instrumentation", {}).get("enabled", True) or enable_class_instrumentation:
         tracer = result.get("tracer")
         meter = result.get("meter")

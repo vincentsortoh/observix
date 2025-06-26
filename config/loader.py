@@ -175,7 +175,6 @@ def _load_from_file(file_path: str) -> Dict[str, Any]:
             module = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(module)
             
-            # Extract configuration from module
             config = {}
             for key, value in module.__dict__.items():
                 if not key.startswith("_"):
@@ -294,7 +293,7 @@ def apply_config(config: Dict[str, Any]) -> None:
     enable_regex = security_config.get("enable_regex", True)
     
     if any([sensitive_keys, redaction_value != "***REDACTED***", enable_regex != True]):
-        from observix.utils.security import DataRedactor, default_redactor
+        from observix.utils.security import DataRedactor
         
         new_redactor = DataRedactor(
             sensitive_keys=sensitive_keys,

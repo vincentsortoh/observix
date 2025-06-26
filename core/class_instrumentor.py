@@ -26,9 +26,7 @@ def load_config(config_file: str = "config.json") -> dict:
 def module_names_from_package(pkg: str) -> List[str]:
     """Convert a package like 'my_package.module' into all module paths under it."""
     try:
-        print("cccccccccccc ", pkg)
         module = importlib.import_module(pkg)
-        print("bbbbbbbbbbbbbb ", module)
         if hasattr(module, "__path__"):
             path = Path(module.__path__[0])
         else:
