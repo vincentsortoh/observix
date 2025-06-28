@@ -1,0 +1,144 @@
+{
+    "_comment": "Enhanced Observix Configuration Schema",
+    "_version": "2.0",
+    
+    "service": {
+      "name": "my-service",
+      "version": "1.0.0",
+      "environment": "development"
+    },
+    
+    "modules_to_instrument": [
+      "my_package.core",
+      "my_package.utils"
+    ],
+    
+    "packages_to_instrument": [
+      "my_package.api",
+      "my_package.services"
+    ],
+    
+    "class_instrumentation": {
+      "enabled": true,
+      "instrument_classes": [
+        "my_package.core.UserService",
+        "my_package.api.handlers.AuthHandler"
+      ],
+      "ignore_classes": [
+        "my_package.core.InternalHelper",
+        "my_package.utils.LoggerMixin"
+      ],
+      "class_patterns": [
+        "*Service",
+        "*Handler",
+        "*Manager"
+      ],
+      "auto_instrument_classes": true,
+      "capture_args": true,
+      "capture_result": true,
+      "ignore_methods": ["__str__", "__repr__", "_private_method"]
+    },
+    
+    "function_instrumentation": {
+      "enabled": true,
+      "instrument_functions": [
+        "my_package.utils.process_data",
+        "my_package.api.auth.validate_token",
+        "my_package.core.calculate_metrics"
+      ],
+      "ignore_functions": [
+        "my_package.utils._internal_helper",
+        "my_package.core.debug_print"
+      ],
+      "function_patterns": [
+        "*_api",
+        "process_*",
+        "calculate_*",
+        "validate_*",
+        "transform_*"
+      ],
+      "auto_instrument_functions": false,
+      "capture_args": true,
+      "capture_result": true,
+      "include_private_functions": false
+    },
+    
+    "instrumentation_options": {
+      "link_spans": false,
+      "with_caller": false,
+      "redact_sensitive_data": true,
+      "sensitive_patterns": [
+        "password",
+        "token",
+        "secret",
+        "api_key",
+        "auth",
+        "credential"
+      ]
+    },
+    
+    "tracing": {
+      "enabled": true,
+      "exporters": ["console", "otlp"],
+      "exporter_endpoints": {
+        "otlp": "http://localhost:4317",
+        "jaeger": "http://localhost:14268/api/traces"
+      }
+    },
+    
+    "metrics": {
+      "enabled": true,
+      "exporters": ["console", "prometheus"],
+      "exporter_endpoints": {
+        "prometheus": "9464",
+        "otlp": "http://localhost:4317"
+      },
+      "export_interval_millis": 5000
+    },
+    
+    "logging": {
+      "enabled": true,
+      "level": "INFO",
+      "exporters": ["console"],
+      "capture_print": true,
+      "enable_loguru": true,
+      "attach_logs_to_spans": true
+    },
+    
+    "examples": {
+      "_comment": "Configuration examples for different use cases",
+      
+      "minimal_config": {
+        "modules_to_instrument": ["my_module"],
+        "class_instrumentation": {
+          "enabled": true,
+          "auto_instrument_classes": true
+        },
+        "function_instrumentation": {
+          "enabled": true,
+          "auto_instrument_functions": true
+        }
+      },
+      
+      "selective_config": {
+        "instrument_classes": ["my_module.ImportantClass"],
+        "instrument_functions": ["my_module.critical_function"],
+        "class_instrumentation": {"enabled": true, "auto_instrument_classes": false},
+        "function_instrumentation": {"enabled": true, "auto_instrument_functions": false}
+      },
+      
+      "pattern_based_config": {
+        "modules_to_instrument": ["my_api"],
+        "class_instrumentation": {
+          "enabled": true,
+          "class_patterns": ["*Handler", "*Service"],
+          "auto_instrument_classes": false
+        },
+        "function_instrumentation": {
+          "enabled": true,
+          "function_patterns": ["*_api", "process_*"],
+          "auto_instrument_functions": false
+        }
+      }
+    }
+  }

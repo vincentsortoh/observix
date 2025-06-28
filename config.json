@@ -42,12 +42,12 @@
       "environment": "test",
       "metrics": {
         "enabled": true,
-        "exporters": ["console"],
+        "exporters": ["console", "otlp", "jaeger"],
         "export_interval_millis": 30000
       },
       "tracing": {
         "enabled": true,
-        "exporters": ["console"],
+        "exporters": ["console", "otlp", "jaeger"],
         "sample_rate": 1.0
       },
       "logging": {

@@ -7,10 +7,10 @@ import json
 from loguru import logger
 from bootstrap import bootstrap, setup_all_tracing, quickstart, bootstrap_with_log_export_only
 
-print("=== Testing Enhanced Bootstrap Functionality ===")
+#print("=== Testing Enhanced Bootstrap Functionality ===")
 
 # Option 1: Use enhanced setup_all_tracing with integrated log export
-print("\n1. Using enhanced setup_all_tracing...")
+#print("\n1. Using enhanced setup_all_tracing...")
 result = setup_all_tracing(
     config_path="config.json",
     enable_loguru=True,
@@ -18,14 +18,14 @@ result = setup_all_tracing(
     enable_log_export=True
 )
 
-print(f"Service: {result['service']['name']} v{result['service']['version']}")
-print(f"Environment: {result['service']['environment']}")
-print(f"Loguru enabled: {result.get('loguru_enabled', False)}")
-print(f"Log export enabled: {result.get('log_exporters', [])}")
-print(f"Tracing exporters: {result.get('tracing_exporters', [])}")
+#print(f"Service: {result['service']['name']} v{result['service']['version']}")
+#print(f"Environment: {result['service']['environment']}")
+#print(f"Loguru enabled: {result.get('loguru_enabled', False)}")
+#print(f"Log export enabled: {result.get('log_exporters', [])}")
+#print(f"Tracing exporters: {result.get('tracing_exporters', [])}")
 
 # Option 2: Enhanced bootstrap with all new features
-print("\n2. Using enhanced bootstrap with full configuration...")
+#print("\n2. Using enhanced bootstrap with full configuration...")
 """
 result = bootstrap(
     service_name="enhanced-user-service",
@@ -50,7 +50,7 @@ result = bootstrap(
 """
 
 # Option 3: Quick start for rapid development
-print("\n3. Using quickstart for rapid development...")
+#print("\n3. Using quickstart for rapid development...")
 """
 quickstart_result = quickstart(
     service_name="quick-service",
@@ -62,7 +62,7 @@ print(f"Quickstart service: {quickstart_result['service']['name']}")
 """
 
 # Option 4: Log export only (useful for existing applications)
-print("\n4. Using log export only...")
+# print("\n4. Using log export only...")
 """
 log_only_result = bootstrap_with_log_export_only(
     service_name="log-only-service",
@@ -78,14 +78,14 @@ log_only_result = bootstrap_with_log_export_only(
 print(f"Log-only service: {log_only_result['service']['name']}")
 """
 
-print("\n=== Testing Instrumented Classes ===")
+#print("\n=== Testing Instrumented Classes ===")
 
 # Import and use the UserService class - it's already instrumented via config
 import user_service
 uservice = user_service.UserService()
 
 # Test synchronous method with enhanced logging
-print("\nTesting synchronous method...")
+#print("\nTesting synchronous method...")
 user_data = {"user": "enhanced-user-vincent", "password": "secure123", "api_key": "secret-key"}
 create_result = uservice.create_user(user_data)
 
